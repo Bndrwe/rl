@@ -1557,6 +1557,31 @@ class TestSpec:
             projected == torch.tensor([0, 0, 0, 1, 9, 9, 9], dtype=torch.long)
         ).all()
 
+    @pytest.mark.parametrize("spec_dtype", [torch.int32, torch.int64])
+    @pytest.mark.parametrize("val_dtype", [torch.int64, torch.float32])
+    def test_categorical_masked_out_of_range(self, spec_dtype, val_dtype):
+        # Index 2 is masked out: values outside [0, n) are clamped like in the
+        # unmasked spec, then masked-out values are resampled among valid ones.
+        mask = torch.tensor([True, True, False, True]).expand(7, 4)
+        spec = Categorical(4, shape=(7,), mask=mask, dtype=spec_dtype)
+        val = torch.tensor([-100, -1, 0, 1, 2, 4, 100], dtype=val_dtype)
+        assert not spec.is_in(val)
+        projected = spec.project(val)
+        assert projected.dtype == spec_dtype
+        assert spec.is_in(projected)
+        torch.testing.assert_close(
+            projected[[0, 1, 2, 3, 5, 6]],
+            torch.tensor([0, 0, 0, 1, 3, 3], dtype=spec_dtype),
+        )
+        assert projected[4].item() in (0, 1, 3)
+
+        multi = MultiCategorical(
+            [2, 3], mask=torch.tensor([True, True, True, False, True])
+        )
+        assert not multi.is_in(torch.tensor([1, 5]))
+        assert not multi.is_in(torch.tensor([-1, 0]))
+        assert multi.is_in(multi.project(torch.tensor([1, 5])))
+
     @pytest.mark.parametrize("batch", [(), (3,), (2, 3), (2, 3, 2)])
     @pytest.mark.parametrize("nvec", [[4], [2, 3]])
     def test_one_hot_project_batched(self, batch, nvec):

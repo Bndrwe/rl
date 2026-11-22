@@ -4047,13 +4047,14 @@ class Categorical(TensorSpec):
             val = torch.round(val)
         if self.mask is None:
             return val.clamp_(min=0, max=self.space.n - 1)
+        val = val.clamp(min=0, max=self.space.n - 1).to(self.dtype)
         shape = self.mask.shape
         shape = _size([*torch.broadcast_shapes(shape[:-1], val.shape), shape[-1]])
         mask_expand = self.mask.expand(shape)
-        gathered = mask_expand.gather(-1, val.unsqueeze(-1))
+        gathered = mask_expand.gather(-1, val.unsqueeze(-1).to(torch.long))
         oob = ~gathered.all(-1)
         new_val = torch.multinomial(mask_expand[oob].float(), 1).squeeze(-1)
-        val = torch.masked_scatter(val, oob, new_val)
+        val = torch.masked_scatter(val, oob, new_val.to(val.dtype))
         return val
 
     def is_in(self, val: torch.Tensor) -> bool:
@@ -4068,6 +4069,8 @@ class Categorical(TensorSpec):
             if self.space.n == -1:
                 return True
             return (0 <= val).all() and (val < self.space.n).all()
+        if not ((0 <= val).all() and (val < self.space.n).all()):
+            return False
         shape = self.mask.shape
         shape = _size([*torch.broadcast_shapes(shape[:-1], val.shape), shape[-1]])
         mask_expand = self.mask.expand(shape)
